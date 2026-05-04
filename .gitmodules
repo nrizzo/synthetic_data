@@ -1,0 +1,6 @@
+[submodule "dependencies/MapThin"]
+	path = dependencies/MapThin
+	url = https://github.com/NewcastleRSE/MapThin
+[submodule "dependencies/libplinkio"]
+	path = dependencies/libplinkio
+	url = https://github.com/mfranberg/libplinkio

@@ -44,8 +44,9 @@ filepaths:
     plink2: plink2
     king: king
     vcftools: vcftools
-    mapthin: mapthin
-    phenoalg: phenoalg
+    bcftools: bcftools
+    mapthin: dependencies/mapthin
+    phenoalg: algorithms/phenotype/phenoalg
 
 
 ####################################
