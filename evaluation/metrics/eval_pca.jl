@@ -26,8 +26,8 @@ function pca_alignment(real_data_prefix, synt_data_prefix)
 
     ##
     # Extract principal directions
-    pc_real = Matrix(df_pc_real[:, 6:end])
-    pc_synt = Matrix(df_pc_synt[:, 6:end])
+    pc_real = Matrix(df_pc_real[:, 7:end])
+    pc_synt = Matrix(df_pc_synt[:, 7:end])
 
     # Normalize the vectors to account for sample difference
     pc_real_norm = pc_real ./ .√(sum(pc_real .^ 2, dims=1))
