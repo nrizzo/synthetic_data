@@ -30,6 +30,7 @@ mutable struct Filepaths
     phenotype_sample_list::String
     phenotype_reference::String
     vcftools::String
+    bcftools::String
     plink::String
     plink2::String
     king::String
@@ -58,6 +59,8 @@ mutable struct GenomicMetadata
     outfile_prefix::String
     batchsize::Integer
     plink::String
+    plink2::String
+    bcftools::String
     memory::Integer
 end
 
@@ -134,13 +137,14 @@ function parse_filepaths(options, chromosome, superpopulation)
     phenotype_reference = format_filepath(options["filepaths"]["phenotype"]["reference"], chromosome, superpopulation, false)
     
     vcftools = format_filepath(options["filepaths"]["software"]["vcftools"], chromosome, superpopulation, false)
+    bcftools = format_filepath(options["filepaths"]["software"]["bcftools"], chromosome, superpopulation, false)
     plink = format_filepath(options["filepaths"]["software"]["plink"], chromosome, superpopulation, false)
     plink2 = format_filepath(options["filepaths"]["software"]["plink2"], chromosome, superpopulation, false)
     king = format_filepath(options["filepaths"]["software"]["king"], chromosome, superpopulation, false)
     mapthin = format_filepath(options["filepaths"]["software"]["mapthin"], chromosome, superpopulation, false)
     phenoalg = format_filepath(options["filepaths"]["software"]["phenoalg"], chromosome, superpopulation, false)
 
-    return Filepaths(vcf_input_raw, vcf_input_processed_prefix, vcf_input_processed, variant_list, remove_list, rsid_list, genetic_mapfile, genetic_distfile, mutation_mapfile, mutation_agefile, hap1_matrix_output, hap2_matrix_output, metadata_output, popfile_raw, popfile_processed, synthetic_data_prefix, evaluation_output, optimisation_output, reference_dir, prspipe_dir, phenotype_causal_list, phenotype_sample_list, phenotype_reference, vcftools, plink, plink2, king, mapthin, phenoalg)
+    return Filepaths(vcf_input_raw, vcf_input_processed_prefix, vcf_input_processed, variant_list, remove_list, rsid_list, genetic_mapfile, genetic_distfile, mutation_mapfile, mutation_agefile, hap1_matrix_output, hap2_matrix_output, metadata_output, popfile_raw, popfile_processed, synthetic_data_prefix, evaluation_output, optimisation_output, reference_dir, prspipe_dir, phenotype_causal_list, phenotype_sample_list, phenotype_reference, vcftools, bcftools, plink, plink2, king, mapthin, phenoalg)
 end
 
 
@@ -268,9 +272,11 @@ function parse_genomic_metadata(options, superpopulation, filepaths)
     outfile_prefix = filepaths.synthetic_data_prefix
     batchsize = get_batchsize(nsamples, options["global_parameters"]["batchsize"])
     plink = filepaths.plink
+    plink2 = filepaths.plink2
+    bcftools = filepaths.bcftools
     memory = options["global_parameters"]["memory"]
 
     nvariants = length(genetic_distances)
 
-    return GenomicMetadata(nsamples, nvariants, H1, H2, fixed_fields, haplotypes, index_map, population_groups, population_weights, population_N, population_Nes, population_rhos, genetic_distances, mutation_ages, outfile_prefix, batchsize, plink, memory)
+    return GenomicMetadata(nsamples, nvariants, H1, H2, fixed_fields, haplotypes, index_map, population_groups, population_weights, population_N, population_Nes, population_rhos, genetic_distances, mutation_ages, outfile_prefix, batchsize, plink, plink2, bcftools, memory)
 end

@@ -1,37 +1,78 @@
 using PyCall
 
 @pyimport bed_reader
+@pyimport pgenlib
+@pyimport numpy # required for pgenlib
 
 
 """Merge all the batch files together
 """
-function merge_batch_files(batch_files, outfile, plink, memory)
+function merge_batch_files(batch_files, outfile, plink, plink2, bcftools, memory)
     if length(batch_files) > 1
         # merge together the batch files
         mergelist = @sprintf("%s_mergefile.txt", outfile)
+        bcfmergelist = @sprintf("%s_bcfmergefile.txt", outfile)
         basefile = batch_files[1]
         io = open(mergelist, "w") do io
         for x in batch_files[2:end]
             println(io, x)
         end
         end
-        
+
+        io = open(bcfmergelist, "w") do io
+        for x in batch_files
+            println(io, x * ".bcf")
+        end
+        end
+
         run(`$plink --bfile $basefile --merge-list $mergelist --make-bed --out $outfile --memory $memory`)
+
+        #https://github.com/chrchang/plink-ng/issues/232
+        files_bcf = ""
+        for file_prefix in batch_files
+                run(`$plink2 --bfile $file_prefix --make-just-pvar --out $file_prefix`)
+                run(`$plink2 --bfile $file_prefix --make-just-psam --out $file_prefix`)
+                run(`$plink2 --pfile $file_prefix --export bcf --out $file_prefix`)
+                file_bcf = file_prefix * ".bcf"
+                files_bcf *= " " * file_bcf
+                run(`$bcftools index $file_bcf`)
+        end
+
+        out_bcf = outfile * ".bcf"
+        run(`$bcftools merge --file-list $bcfmergelist --output-type b --output $out_bcf`)
 
         # remove the batch files
         for file_prefix in batch_files
             rm(string(file_prefix,".bed"))
             rm(string(file_prefix,".bim"))
             rm(string(file_prefix,".fam"))
+            rm(string(file_prefix,".pgen"))
+            rm(string(file_prefix,".pvar"))
+            rm(string(file_prefix,".psam"))
+            rm(string(file_prefix,".bcf"))
+            rm(string(file_prefix,".bcf.csi"))
+            rm(string(file_prefix,".log"))
         end
         rm(mergelist)
+        rm(bcfmergelist)
+        rm(string(outfile,".log"))
     else
         # no files to merge - reformat and remove single batch file
         file_prefix = batch_files[1]
         run(`$plink --bfile $file_prefix --make-bed --out $outfile`)
+
+        run(`$plink2 --bfile $file_prefix --make-just-pvar --out $file_prefix`)
+        run(`$plink2 --bfile $file_prefix --make-just-psam --out $file_prefix`)
+        run(`$plink2 --pfile $file_prefix --make-pgen --out $outfile`)
+
         rm(string(file_prefix,".bed"))
         rm(string(file_prefix,".bim"))
         rm(string(file_prefix,".fam"))
+        rm(string(file_prefix,".pgen"))
+        rm(string(file_prefix,".pvar"))
+        rm(string(file_prefix,".psam"))
+        rm(string(file_prefix,".log"))
+        rm(string(outfile,".log"))
     end
 end
 
@@ -99,6 +140,61 @@ function get_genostr(batch_ref_df, batchsize, start_haplotype, metadata)
     return genostr
 end
 
+"""Construct the data into the format for writing to pgen output (matrix of size variants x 2*batchsize)
+"""
+function get_genostr_phased(batch_ref_df, batchsize, start_haplotype, metadata)
+    I_hap = Dict(1=>Array{Int8}(undef, batchsize, metadata.nvariants), 2=>Array{Int8}(undef, batchsize, metadata.nvariants))
+
+    p = Progress(batchsize)
+    Threads.@threads for genotype in 1:batchsize
+        for hap in [1,2]
+            # construct the synthetic haplotypes, using the coordinates from the reference dataframe
+            I = Vector{Int8}(undef, metadata.nvariants)
+
+            if hap == 1
+                true_hap = (start_haplotype + (genotype-1)*2)
+            else
+                true_hap = (start_haplotype + (genotype-1)*2 + 1)
+            end
+
+            hap_df = batch_ref_df[batch_ref_df.H .== true_hap, :]
+
+            I_pos = 1
+            segment_sums = 0
+            for row in eachrow(hap_df)
+                if hap == 1
+                    segment = metadata.H1[metadata.index_map[row.I], row.S:row.E]
+                    segment = add_mutations(segment, row.T, metadata.mutation_ages, I_pos)
+                else
+                    segment = metadata.H2[metadata.index_map[row.I], row.S:row.E]
+                    segment = add_mutations(segment, row.T, metadata.mutation_ages, I_pos)
+                end
+                segment_sums += sum(segment)
+                length_of_segment = length(segment)
+                I[I_pos:I_pos+length_of_segment-1] = segment
+                I_pos += length_of_segment
+            end
+
+            I = vcat(I...)
+            @assert segment_sums == sum(I)
+
+            I_hap[hap][genotype,:] = I
+        end
+        next!(p)
+    end
+
+    @assert length(I_hap[1]) == metadata.nvariants*batchsize
+    @assert length(I_hap[2]) == metadata.nvariants*batchsize
+    out = Array{Int8}(undef, metadata.nvariants, 2*batchsize)
+    for v in 1:metadata.nvariants
+            for g in 1:batchsize
+                    out[v, 2*(g-1) + 1] = I_hap[1][g, v]
+                    out[v, 2*(g-1) + 2] = I_hap[2][g, v]
+            end
+    end
+    return out
+end
+
 
 """Writes the plink output for a single batch, using the Python package bed_reader
 """
@@ -116,6 +212,21 @@ function write_to_plink_batch(batch_ref_df, prev_batchsize, cur_batchsize, batch
     batch_file = @sprintf("%s_%i.bed", metadata.outfile_prefix, (batch_number-1))
 
     bed_reader.to_bed(batch_file, genostr, properties=properties)
+
+    return batch_file
+end
+
+"""Writes the pgen output for a single batch, using the Python package pgenlib
+"""
+function write_to_pgen_batch(batch_ref_df, prev_batchsize, cur_batchsize, batch_number, metadata)
+    start_haplotype = ((batch_number-1)*prev_batchsize)*2+1
+    genostr = get_genostr_phased(batch_ref_df, cur_batchsize, start_haplotype, metadata)
+    batch_file = @sprintf("%s_%i.pgen", metadata.outfile_prefix, (batch_number-1))
+    pgenwriter = pgenlib.PgenWriter(PyCall.pybytes(batch_file), cur_batchsize, metadata.nvariants, hardcall_phase_present = true)
+    for v in 1:metadata.nvariants
+            pgenwriter.append_alleles(convert(Array{Int32}, genostr[v,:]), all_phased = true)
+    end
+    pgenwriter.close()
 
     return batch_file
 end

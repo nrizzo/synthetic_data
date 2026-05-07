@@ -124,12 +124,14 @@ function create_synthetic_genotype_for_chromosome(metadata)
         batch_file = write_to_plink_batch(batch_ref_df, metadata.batchsize, adjusted_batchsize, batch_number, metadata)
         batch_files[batch_number] = batch_file[1:end-4]
         total_samples_written += adjusted_batchsize
+        @info @sprintf("Writing the phased pgen file for batch %i", batch_number)
+        write_to_pgen_batch(batch_ref_df, metadata.batchsize, adjusted_batchsize, batch_number, metadata)
     end
 
     @assert total_samples_written == metadata.nsamples # check all synthetic samples were written to the output
 
     @info "Merging all batch files"
-    merge_batch_files(batch_files, metadata.outfile_prefix, metadata.plink, metadata.memory)
+    merge_batch_files(batch_files, metadata.outfile_prefix, metadata.plink, metadata.plink2, metadata.bcftools, metadata.memory)
 end
 
 
